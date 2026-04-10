@@ -6,13 +6,12 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Badge } from "@/components/ui/badge"
 
 interface GeneratedCard {
   id: string
   bin: string
+  fullCard: string
   brand: string
   expiryDate: string
   expiryYear: string
@@ -20,14 +19,29 @@ interface GeneratedCard {
 }
 
 // BIN database for auto-detection
-const BIN_DATA: Record<string, string> = {
-  "4": "Visa",
-  "5": "Mastercard",
-  "3": "American Express",
-  "6": "Discover",
+const BIN_PREFIXES: Record<string, { brand: string; length: number }> = {
+  "4": { brand: "Visa", length: 16 },
+  "5": { brand: "Mastercard", length: 16 },
+  "34": { brand: "American Express", length: 15 },
+  "37": { brand: "American Express", length: 15 },
+  "6": { brand: "Discover", length: 16 },
 }
 
-// Luhn algorithm
+function detectCardBrand(bin: string): { brand: string; length: number } {
+  if (!bin) return { brand: "Unknown", length: 16 }
+  
+  // Check longer prefixes first
+  if (bin.length >= 2 && BIN_PREFIXES[bin.substring(0, 2)]) {
+    return BIN_PREFIXES[bin.substring(0, 2)]
+  }
+  
+  if (BIN_PREFIXES[bin[0]]) {
+    return BIN_PREFIXES[bin[0]]
+  }
+  
+  return { brand: "Unknown", length: 16 }
+}
+
 function luhnChecksum(digits: number[]): number {
   let sum = 0
   let isEven = false
@@ -43,22 +57,22 @@ function luhnChecksum(digits: number[]): number {
   return (10 - (sum % 10)) % 10
 }
 
-function generateValidBIN(brand: string): string {
-  const prefixes: Record<string, string> = {
-    visa: "4",
-    mastercard: "5",
-    amex: "3",
-    discover: "6",
+function generateFullCardNumber(bin: string): string {
+  const { length } = detectCardBrand(bin)
+  const remainingLength = length - bin.length - 1 // -1 for check digit
+  
+  let cardDigits = bin.split("").map(Number)
+  
+  // Generate random middle digits
+  for (let i = 0; i < remainingLength; i++) {
+    cardDigits.push(Math.floor(Math.random() * 10))
   }
-  const prefix = prefixes[brand] || "4"
-  const bin = prefix + Array.from({ length: 5 }, () => Math.floor(Math.random() * 10)).join("")
-  return bin
-}
-
-function detectCardBrand(bin: string): string {
-  if (!bin) return "Unknown"
-  const firstDigit = bin[0]
-  return BIN_DATA[firstDigit] || "Unknown"
+  
+  // Calculate check digit using Luhn algorithm
+  const checkDigit = luhnChecksum(cardDigits)
+  cardDigits.push(checkDigit)
+  
+  return cardDigits.join("")
 }
 
 function generateCards(
@@ -74,8 +88,8 @@ function generateCards(
   const cards: GeneratedCard[] = []
   
   for (let i = 0; i < quantity; i++) {
-    const currentBin = bin || generateValidBIN("visa")
-    const brand = detectCardBrand(currentBin)
+    const fullCard = generateFullCardNumber(bin)
+    const brandInfo = detectCardBrand(bin)
     
     const expiryDate = expiryDateMode === "custom" ? customExpiryDate : String(Math.floor(1 + Math.random() * 12)).padStart(2, "0")
     const expiryYear = expiryYearMode === "custom" ? customExpiryYear : String(Math.floor(25 + Math.random() * 10))
@@ -83,8 +97,9 @@ function generateCards(
     
     cards.push({
       id: Math.random().toString(36).substring(2, 9),
-      bin: currentBin,
-      brand,
+      bin: bin,
+      fullCard: fullCard,
+      brand: brandInfo.brand,
       expiryDate: expiryDate.padStart(2, "0"),
       expiryYear,
       cvv,
@@ -106,13 +121,35 @@ export default function CCGeneratorPage() {
   const [customCVV, setCustomCVV] = React.useState("123")
   const [cards, setCards] = React.useState<GeneratedCard[]>([])
   const [copied, setCopied] = React.useState(false)
+  const [mounted, setMounted] = React.useState(false)
+
+  React.useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const handleBinChange = (value: string) => {
-    setBin(value)
-    setAutoDetectedBrand(detectCardBrand(value))
+    // Only allow digits and limit to 16
+    const filtered = value.replace(/\D/g, "").slice(0, 16)
+    setBin(filtered)
+    if (filtered.length >= 2) {
+      const brandInfo = detectCardBrand(filtered)
+      setAutoDetectedBrand(brandInfo.brand)
+    } else {
+      setAutoDetectedBrand("Unknown")
+    }
   }
 
   const handleGenerate = () => {
+    if (!bin) {
+      alert("Please enter a BIN (2-16 digits)")
+      return
+    }
+    
+    if (bin.length < 2) {
+      alert("BIN must be at least 2 digits")
+      return
+    }
+
     if (quantity === "" || parseInt(quantity) <= 0) {
       alert("Please enter a valid quantity")
       return
@@ -135,9 +172,9 @@ export default function CCGeneratorPage() {
   const downloadCards = () => {
     if (cards.length === 0) return
     
-    let csv = "BIN,Card Type,Expiry Date,Expiry Year,CVV\n"
+    let csv = "BIN,Full Card,Card Type,Expiry Date,Expiry Year,CVV\n"
     cards.forEach((card) => {
-      csv += `${card.bin},${card.brand},${card.expiryDate},${card.expiryYear},${card.cvv}\n`
+      csv += `${card.bin},${card.fullCard},${card.brand},${card.expiryDate},${card.expiryYear},${card.cvv}\n`
     })
     
     const blob = new Blob([csv], { type: "text/csv" })
@@ -153,7 +190,7 @@ export default function CCGeneratorPage() {
     if (cards.length === 0) return
     
     const text = cards
-      .map((card) => `${card.bin}\t${card.expiryDate}\t${card.expiryYear}\t${card.cvv}`)
+      .map((card) => `${card.bin}\t${card.fullCard}\t${card.expiryDate}\t${card.expiryYear}\t${card.cvv}`)
       .join("\n")
     
     navigator.clipboard.writeText(text)
@@ -164,6 +201,8 @@ export default function CCGeneratorPage() {
   const clearAll = () => {
     setCards([])
   }
+
+  if (!mounted) return null
 
   return (
     <div className="flex flex-col animate-fade-in">
@@ -178,7 +217,7 @@ export default function CCGeneratorPage() {
               Credit Card Generator
             </h1>
             <p className="mt-4 text-pretty text-lg text-muted-foreground">
-              Generate test credit card numbers with custom BIN, expiry dates, and CVVs. Perfect for development and testing.
+              Generate test credit card numbers from BIN. Just enter the BIN (2-16 digits) and we'll generate full valid cards.
             </p>
             <Badge variant="secondary" className="mt-4">For Testing Only - Not Real Cards</Badge>
           </div>
@@ -190,7 +229,7 @@ export default function CCGeneratorPage() {
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="grid gap-8 lg:grid-cols-4">
             {/* Settings Panel */}
-            <Card className="border-border/40 bg-card/50 backdrop-blur-sm lg:col-span-1 h-fit">
+            <Card className="border-border/40 bg-card/50 backdrop-blur-sm lg:col-span-1 h-fit sticky top-20">
               <CardHeader>
                 <CardTitle>Configuration</CardTitle>
                 <CardDescription>Set your card parameters</CardDescription>
@@ -198,33 +237,41 @@ export default function CCGeneratorPage() {
               <CardContent className="space-y-6">
                 {/* BIN Input */}
                 <div className="space-y-2">
-                  <Label htmlFor="bin">BIN (Optional)</Label>
+                  <Label htmlFor="bin">BIN (2-16 Digits)*</Label>
                   <Input
                     id="bin"
                     placeholder="e.g., 453786"
                     value={bin}
                     onChange={(e) => handleBinChange(e.target.value)}
-                    maxLength={6}
-                    className="font-mono"
+                    maxLength={16}
+                    className="font-mono text-base"
                   />
                   <div className="text-xs text-muted-foreground">
-                    Auto-detect: <span className="font-semibold text-foreground">{autoDetectedBrand}</span>
+                    Card Type: <span className="font-semibold text-foreground">{autoDetectedBrand}</span>
                   </div>
                 </div>
 
                 {/* Expiry Date */}
                 <div className="space-y-3">
                   <Label>Expiry Date (MM)</Label>
-                  <RadioGroup value={expiryDateMode} onValueChange={(v) => setExpiryDateMode(v as "random" | "custom")}>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="random" id="expiry-random" />
-                      <Label htmlFor="expiry-random" className="text-sm font-normal cursor-pointer">Random</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="custom" id="expiry-custom" />
-                      <Label htmlFor="expiry-custom" className="text-sm font-normal cursor-pointer">Custom</Label>
-                    </div>
-                  </RadioGroup>
+                  <div className="flex gap-2">
+                    <Button
+                      variant={expiryDateMode === "random" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setExpiryDateMode("random")}
+                      className="flex-1 transition-all duration-200"
+                    >
+                      Random
+                    </Button>
+                    <Button
+                      variant={expiryDateMode === "custom" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setExpiryDateMode("custom")}
+                      className="flex-1 transition-all duration-200"
+                    >
+                      Custom
+                    </Button>
+                  </div>
                   {expiryDateMode === "custom" && (
                     <Input
                       type="number"
@@ -233,7 +280,7 @@ export default function CCGeneratorPage() {
                       placeholder="01-12"
                       value={customExpiryDate}
                       onChange={(e) => setCustomExpiryDate(e.target.value)}
-                      className="text-sm"
+                      className="text-sm font-mono"
                     />
                   )}
                 </div>
@@ -241,16 +288,24 @@ export default function CCGeneratorPage() {
                 {/* Expiry Year */}
                 <div className="space-y-3">
                   <Label>Expiry Year (YY)</Label>
-                  <RadioGroup value={expiryYearMode} onValueChange={(v) => setExpiryYearMode(v as "random" | "custom")}>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="random" id="year-random" />
-                      <Label htmlFor="year-random" className="text-sm font-normal cursor-pointer">Random</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="custom" id="year-custom" />
-                      <Label htmlFor="year-custom" className="text-sm font-normal cursor-pointer">Custom</Label>
-                    </div>
-                  </RadioGroup>
+                  <div className="flex gap-2">
+                    <Button
+                      variant={expiryYearMode === "random" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setExpiryYearMode("random")}
+                      className="flex-1 transition-all duration-200"
+                    >
+                      Random
+                    </Button>
+                    <Button
+                      variant={expiryYearMode === "custom" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setExpiryYearMode("custom")}
+                      className="flex-1 transition-all duration-200"
+                    >
+                      Custom
+                    </Button>
+                  </div>
                   {expiryYearMode === "custom" && (
                     <Input
                       type="number"
@@ -258,7 +313,7 @@ export default function CCGeneratorPage() {
                       value={customExpiryYear}
                       onChange={(e) => setCustomExpiryYear(e.target.value)}
                       maxLength={2}
-                      className="text-sm"
+                      className="text-sm font-mono"
                     />
                   )}
                 </div>
@@ -266,16 +321,24 @@ export default function CCGeneratorPage() {
                 {/* CVV */}
                 <div className="space-y-3">
                   <Label>CVV</Label>
-                  <RadioGroup value={cvvMode} onValueChange={(v) => setCvvMode(v as "random" | "custom")}>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="random" id="cvv-random" />
-                      <Label htmlFor="cvv-random" className="text-sm font-normal cursor-pointer">Random</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="custom" id="cvv-custom" />
-                      <Label htmlFor="cvv-custom" className="text-sm font-normal cursor-pointer">Custom</Label>
-                    </div>
-                  </RadioGroup>
+                  <div className="flex gap-2">
+                    <Button
+                      variant={cvvMode === "random" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setCvvMode("random")}
+                      className="flex-1 transition-all duration-200"
+                    >
+                      Random
+                    </Button>
+                    <Button
+                      variant={cvvMode === "custom" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setCvvMode("custom")}
+                      className="flex-1 transition-all duration-200"
+                    >
+                      Custom
+                    </Button>
+                  </div>
                   {cvvMode === "custom" && (
                     <Input
                       type="number"
@@ -283,14 +346,14 @@ export default function CCGeneratorPage() {
                       value={customCVV}
                       onChange={(e) => setCustomCVV(e.target.value)}
                       maxLength={4}
-                      className="text-sm"
+                      className="text-sm font-mono"
                     />
                   )}
                 </div>
 
                 {/* Quantity */}
                 <div className="space-y-2">
-                  <Label htmlFor="quantity">Quantity (Max 1000)</Label>
+                  <Label htmlFor="quantity">Quantity (Max 1000)*</Label>
                   <Input
                     id="quantity"
                     type="number"
@@ -298,12 +361,13 @@ export default function CCGeneratorPage() {
                     max="1000"
                     value={quantity}
                     onChange={(e) => setQuantity(e.target.value)}
+                    className="font-mono"
                   />
                 </div>
 
                 {/* Generate Button */}
-                <Button onClick={handleGenerate} className="w-full gap-2 h-10">
-                  <RefreshCw className="h-4 w-4" />
+                <Button onClick={handleGenerate} className="w-full gap-2 h-11 text-base font-semibold hover:shadow-lg hover:shadow-primary/50 transition-all duration-200">
+                  <RefreshCw className="h-5 w-5" />
                   Generate Cards
                 </Button>
               </CardContent>
@@ -314,14 +378,14 @@ export default function CCGeneratorPage() {
               {cards.length > 0 ? (
                 <div className="space-y-4 animate-slide-up">
                   {/* Actions Bar */}
-                  <div className="flex flex-wrap items-center justify-between gap-4 pb-4">
+                  <div className="flex flex-wrap items-center justify-between gap-4 pb-4 p-4 bg-card/50 rounded-lg border border-border/40">
                     <div>
                       <p className="text-sm text-muted-foreground">
                         Generated <span className="font-bold text-foreground text-base">{cards.length}</span> card{cards.length !== 1 ? "s" : ""}
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <Button variant="outline" size="sm" onClick={copyAll} className="gap-2">
+                      <Button variant="outline" size="sm" onClick={copyAll} className="gap-2 hover:bg-primary/10 hover:text-primary">
                         {copied ? (
                           <>
                             <Check className="h-4 w-4 text-green-500" />
@@ -334,7 +398,7 @@ export default function CCGeneratorPage() {
                           </>
                         )}
                       </Button>
-                      <Button variant="outline" size="sm" onClick={downloadCards} className="gap-2">
+                      <Button variant="outline" size="sm" onClick={downloadCards} className="gap-2 hover:bg-primary/10 hover:text-primary">
                         <Download className="h-4 w-4" />
                         Download CSV
                       </Button>
@@ -342,7 +406,7 @@ export default function CCGeneratorPage() {
                         variant="outline" 
                         size="sm" 
                         onClick={clearAll} 
-                        className="gap-2 text-destructive hover:text-destructive"
+                        className="gap-2 text-destructive hover:text-destructive hover:bg-destructive/10"
                       >
                         <Trash2 className="h-4 w-4" />
                         Clear
@@ -357,6 +421,7 @@ export default function CCGeneratorPage() {
                         <thead className="border-b border-border/40 bg-muted/50">
                           <tr>
                             <th className="px-4 py-3 text-left font-semibold">BIN</th>
+                            <th className="px-4 py-3 text-left font-semibold">Full Card</th>
                             <th className="px-4 py-3 text-left font-semibold">Card Type</th>
                             <th className="px-4 py-3 text-left font-semibold">Expiry Date</th>
                             <th className="px-4 py-3 text-left font-semibold">Expiry Year</th>
@@ -367,16 +432,17 @@ export default function CCGeneratorPage() {
                           {cards.map((card, index) => (
                             <tr 
                               key={card.id} 
-                              className="transition-colors hover:bg-muted/30"
+                              className="transition-colors hover:bg-muted/40"
                               style={{ animation: `slideUp 0.3s ease-out ${index * 30}ms forwards`, opacity: 0 }}
                             >
-                              <td className="px-4 py-3 font-mono text-foreground">{card.bin}</td>
+                              <td className="px-4 py-3 font-mono text-sm text-foreground">{card.bin}</td>
+                              <td className="px-4 py-3 font-mono text-sm text-foreground">{card.fullCard}</td>
                               <td className="px-4 py-3">
-                                <Badge variant="secondary">{card.brand}</Badge>
+                                <Badge variant="secondary" className="text-xs">{card.brand}</Badge>
                               </td>
-                              <td className="px-4 py-3 font-mono">{card.expiryDate}</td>
-                              <td className="px-4 py-3 font-mono">{card.expiryYear}</td>
-                              <td className="px-4 py-3 font-mono">{card.cvv}</td>
+                              <td className="px-4 py-3 font-mono text-sm">{card.expiryDate}</td>
+                              <td className="px-4 py-3 font-mono text-sm">{card.expiryYear}</td>
+                              <td className="px-4 py-3 font-mono text-sm">{card.cvv}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -392,7 +458,7 @@ export default function CCGeneratorPage() {
                     </div>
                     <h3 className="text-lg font-semibold">No cards generated yet</h3>
                     <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-                      Configure your card parameters on the left and click "Generate Cards" to create test credit cards.
+                      Enter a BIN (2-16 digits), configure your options, and click "Generate Cards" to create test credit cards.
                     </p>
                   </CardContent>
                 </Card>
@@ -405,23 +471,31 @@ export default function CCGeneratorPage() {
       {/* Info Section */}
       <section className="border-t border-border/40 bg-muted/30 py-12 sm:py-16">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <h2 className="mb-8 text-center text-2xl font-bold">Features</h2>
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          <h2 className="mb-8 text-center text-2xl font-bold">How It Works</h2>
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             <div>
-              <h3 className="font-semibold mb-2">Auto BIN Detection</h3>
-              <p className="text-sm text-muted-foreground">Automatically detects card brand from BIN numbers.</p>
+              <h3 className="font-semibold mb-2">1. Enter BIN</h3>
+              <p className="text-sm text-muted-foreground">Provide a Bank Identification Number (2-16 digits)</p>
             </div>
             <div>
-              <h3 className="font-semibold mb-2">Custom Expiry</h3>
-              <p className="text-sm text-muted-foreground">Choose random or custom expiry dates and years.</p>
+              <h3 className="font-semibold mb-2">2. Auto Detection</h3>
+              <p className="text-sm text-muted-foreground">Card brand is detected automatically (Visa, Mastercard, etc)</p>
             </div>
             <div>
-              <h3 className="font-semibold mb-2">Custom CVV</h3>
-              <p className="text-sm text-muted-foreground">Set random or fixed CVV values for your tests.</p>
+              <h3 className="font-semibold mb-2">3. Custom Options</h3>
+              <p className="text-sm text-muted-foreground">Choose random or custom expiry dates and CVV values</p>
             </div>
             <div>
-              <h3 className="font-semibold mb-2">Bulk Export</h3>
-              <p className="text-sm text-muted-foreground">Download as CSV or copy all cards to clipboard.</p>
+              <h3 className="font-semibold mb-2">4. Generate</h3>
+              <p className="text-sm text-muted-foreground">Generate full valid card numbers using Luhn algorithm</p>
+            </div>
+            <div>
+              <h3 className="font-semibold mb-2">5. Export</h3>
+              <p className="text-sm text-muted-foreground">Download as CSV or copy all cards to clipboard</p>
+            </div>
+            <div>
+              <h3 className="font-semibold mb-2">6. Test</h3>
+              <p className="text-sm text-muted-foreground">Use for development and testing purposes only</p>
             </div>
           </div>
         </div>
