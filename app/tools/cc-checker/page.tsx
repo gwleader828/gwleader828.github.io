@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { CheckCircle2, AlertCircle, Copy, Check, Trash2, Play, Square } from "lucide-react"
+import { CheckCircle2, AlertCircle, Copy, Check, Trash2, Play, Square, Clock, Zap } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
@@ -19,7 +19,7 @@ interface ValidationResult {
   expiry?: string
 }
 
-// Luhn algorithm validation
+// Luhn algorithm validation - Real validator
 function validateLuhn(cardNumber: string): boolean {
   const digits = cardNumber.replace(/\D/g, "").split("").map(Number)
   if (digits.length < 13 || digits.length > 19) return false
@@ -52,7 +52,6 @@ function detectBrand(cardNumber: string): string {
 function parseCardData(input: string): Omit<ValidationResult, 'id' | 'isValid' | 'brand' | 'message'>[] {
   const lines = input.split('\n').filter(line => line.trim())
   return lines.map(line => {
-    // Try to parse different formats: card|expiry|cvv or just card
     const parts = line.split(/[\s\|,\t]+/).filter(p => p.trim())
     return {
       number: parts[0] || '',
@@ -69,10 +68,24 @@ export default function CCCheckerPage() {
   const [filterStatus, setFilterStatus] = React.useState<"all" | "live" | "dead">("all")
   const [copiedId, setCopiedId] = React.useState<string | null>(null)
   const [mounted, setMounted] = React.useState(false)
+  const [currentIndex, setCurrentIndex] = React.useState(0)
+  const [totalCards, setTotalCards] = React.useState(0)
+  const [elapsedTime, setElapsedTime] = React.useState(0)
+  const [startTime, setStartTime] = React.useState<number | null>(null)
 
   React.useEffect(() => {
     setMounted(true)
   }, [])
+
+  React.useEffect(() => {
+    let timer: NodeJS.Timeout
+    if (isChecking && startTime) {
+      timer = setInterval(() => {
+        setElapsedTime(Math.floor((Date.now() - startTime) / 1000))
+      }, 100)
+    }
+    return () => clearInterval(timer)
+  }, [isChecking, startTime])
 
   const handleCheck = async () => {
     if (!pastInput.trim()) {
@@ -81,12 +94,20 @@ export default function CCCheckerPage() {
     }
 
     setIsChecking(true)
+    setStartTime(Date.now())
+    setElapsedTime(0)
+    setCurrentIndex(0)
     const parsedCards = parseCardData(pastInput)
+    setTotalCards(parsedCards.length)
     const newResults: ValidationResult[] = []
 
-    // Simulate checking with slight delay for better UX
-    for (const card of parsedCards) {
+    for (let i = 0; i < parsedCards.length; i++) {
+      if (!isChecking) break // Stop if user clicked stop
+      
+      const card = parsedCards[i]
       if (!card.number.trim()) continue
+      
+      setCurrentIndex(i + 1)
       
       const cleanNumber = card.number.replace(/\D/g, "")
       const isValid = validateLuhn(cleanNumber)
@@ -94,19 +115,20 @@ export default function CCCheckerPage() {
 
       newResults.push({
         id: Math.random().toString(36).substring(2, 9),
-        number: card.number,
+        number: cleanNumber,
         isValid,
         brand,
-        message: isValid ? "Valid - Live Card" : "Invalid - Dead Card",
+        message: isValid ? "✓ Valid Card" : "✗ Invalid Card",
         expiry: card.expiry,
         cvv: card.cvv,
       })
 
-      // Small delay for visual feedback
-      await new Promise(resolve => setTimeout(resolve, 50))
+      setResults([...newResults])
+
+      // 100ms delay between checks for real-time visual feedback
+      await new Promise(resolve => setTimeout(resolve, 100))
     }
 
-    setResults(newResults)
     setPastInput("")
     setIsChecking(false)
   }
@@ -138,6 +160,9 @@ export default function CCCheckerPage() {
 
   const liveCount = results.filter(r => r.isValid).length
   const deadCount = results.filter(r => !r.isValid).length
+  const remainingCards = totalCards - currentIndex
+  const estimatedTimePerCard = elapsedTime > 0 ? elapsedTime / currentIndex : 0.1
+  const estimatedTimeRemaining = Math.ceil(remainingCards * estimatedTimePerCard)
 
   if (!mounted) return null
 
@@ -154,7 +179,7 @@ export default function CCCheckerPage() {
               Credit Card Validator
             </h1>
             <p className="mt-4 text-pretty text-lg text-muted-foreground">
-              Validate multiple credit card numbers at once. Paste all cards and check live/dead status.
+              Validate multiple credit card numbers at once using real Luhn algorithm validation.
             </p>
           </div>
         </div>
@@ -165,7 +190,7 @@ export default function CCCheckerPage() {
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="grid gap-8 lg:grid-cols-3">
             {/* Input Panel */}
-            <Card className="h-fit border-border/40 bg-card/50 backdrop-blur-sm lg:sticky lg:top-24">
+            <Card className="h-fit border-border/40 bg-card/50 backdrop-blur-sm lg:sticky lg:top-24 z-10">
               <CardHeader>
                 <CardTitle>Validate Cards</CardTitle>
                 <CardDescription>Paste multiple card numbers</CardDescription>
@@ -206,6 +231,35 @@ export default function CCCheckerPage() {
                     </Button>
                   )}
                 </div>
+
+                {/* Progress Info */}
+                {isChecking && (
+                  <div className="space-y-3 border-t border-border/40 pt-4">
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Progress</span>
+                        <span className="font-semibold">{currentIndex}/{totalCards}</span>
+                      </div>
+                      <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                        <div 
+                          className="h-full bg-primary transition-all duration-300"
+                          style={{width: totalCards > 0 ? `${(currentIndex / totalCards) * 100}%` : '0%'}}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="flex items-center gap-1">
+                        <Zap className="h-3 w-3" />
+                        <span>Time: {elapsedTime}s</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        <span>~{estimatedTimeRemaining}s left</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -214,7 +268,7 @@ export default function CCCheckerPage() {
               {results.length > 0 ? (
                 <div className="space-y-4 animate-slide-up">
                   {/* Stats and Filter Bar */}
-                  <Card className="border-border/40 bg-card/50">
+                  <Card className="border-border/40 bg-card/50 backdrop-blur-sm">
                     <CardContent className="p-4">
                       <div className="space-y-4">
                         {/* Stats */}
@@ -237,8 +291,8 @@ export default function CCCheckerPage() {
                         <Tabs value={filterStatus} onValueChange={(v) => setFilterStatus(v as any)} className="w-full">
                           <TabsList className="grid w-full grid-cols-3">
                             <TabsTrigger value="all">All ({results.length})</TabsTrigger>
-                            <TabsTrigger value="live">Live ({liveCount})</TabsTrigger>
-                            <TabsTrigger value="dead">Dead ({deadCount})</TabsTrigger>
+                            <TabsTrigger value="live" className="text-green-600">Live ({liveCount})</TabsTrigger>
+                            <TabsTrigger value="dead" className="text-red-600">Dead ({deadCount})</TabsTrigger>
                           </TabsList>
                         </Tabs>
 
@@ -283,18 +337,18 @@ export default function CCCheckerPage() {
                                 <div className="flex items-center gap-2">
                                   {result.isValid ? (
                                     <>
-                                      <CheckCircle2 className="h-4 w-4 text-green-500" />
-                                      <Badge variant="default" className="text-xs bg-green-600">Live</Badge>
+                                      <CheckCircle2 className="h-5 w-5 text-green-500 flex-shrink-0" />
+                                      <Badge className="text-xs bg-green-600 hover:bg-green-700">Live</Badge>
                                     </>
                                   ) : (
                                     <>
-                                      <AlertCircle className="h-4 w-4 text-destructive" />
+                                      <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
                                       <Badge variant="destructive" className="text-xs">Dead</Badge>
                                     </>
                                   )}
                                 </div>
                               </td>
-                              <td className="px-4 py-3 font-mono text-xs">{result.number}</td>
+                              <td className="px-4 py-3 font-mono text-xs break-all">{result.number}</td>
                               <td className="px-4 py-3">
                                 <Badge variant="outline" className="text-xs">{result.brand}</Badge>
                               </td>
@@ -339,7 +393,7 @@ export default function CCCheckerPage() {
                     </div>
                     <h3 className="text-lg font-semibold">No cards checked yet</h3>
                     <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-                      Paste multiple credit card numbers above and click "Start Check" to validate them all at once.
+                      Paste multiple credit card numbers above and click "Start Check" to validate them using real Luhn algorithm.
                       Live cards will be marked with a green badge, dead cards with red.
                     </p>
                   </CardContent>
@@ -356,28 +410,28 @@ export default function CCCheckerPage() {
           <h2 className="mb-8 text-center text-2xl font-bold">Batch Validation Features</h2>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             <div>
-              <h3 className="font-semibold mb-2">Bulk Check</h3>
-              <p className="text-sm text-muted-foreground">Check unlimited cards at once using Luhn algorithm</p>
+              <h3 className="font-semibold mb-2">Real Luhn Algorithm</h3>
+              <p className="text-sm text-muted-foreground">Industry-standard validation for card authenticity</p>
             </div>
             <div>
               <h3 className="font-semibold mb-2">Live/Dead Filter</h3>
               <p className="text-sm text-muted-foreground">Separate valid from invalid cards instantly</p>
             </div>
             <div>
+              <h3 className="font-semibold mb-2">Real-time Progress</h3>
+              <p className="text-sm text-muted-foreground">See elapsed time and estimated time remaining</p>
+            </div>
+            <div>
               <h3 className="font-semibold mb-2">Brand Detection</h3>
               <p className="text-sm text-muted-foreground">Auto-detect Visa, Mastercard, Amex, and more</p>
             </div>
             <div>
-              <h3 className="font-semibold mb-2">Flexible Format</h3>
-              <p className="text-sm text-muted-foreground">Paste cards with optional expiry and CVV data</p>
+              <h3 className="font-semibold mb-2">Live Stats</h3>
+              <p className="text-sm text-muted-foreground">See live/dead card count updated in real-time</p>
             </div>
             <div>
-              <h3 className="font-semibold mb-2">Real-time Stats</h3>
-              <p className="text-sm text-muted-foreground">See live/dead card count updated instantly</p>
-            </div>
-            <div>
-              <h3 className="font-semibold mb-2">Copy Individual</h3>
-              <p className="text-sm text-muted-foreground">Copy any card with its metadata to clipboard</p>
+              <h3 className="font-semibold mb-2">Copy & Delete</h3>
+              <p className="text-sm text-muted-foreground">Copy any card or delete individual results</p>
             </div>
           </div>
         </div>
