@@ -93,23 +93,29 @@ export default function CCCheckerPage() {
       return
     }
 
+    const parsedCards = parseCardData(pastInput)
+    if (parsedCards.length === 0) {
+      alert("No valid card numbers found")
+      return
+    }
+
     setIsChecking(true)
     setStartTime(Date.now())
     setElapsedTime(0)
     setCurrentIndex(0)
-    const parsedCards = parseCardData(pastInput)
     setTotalCards(parsedCards.length)
     const newResults: ValidationResult[] = []
+    let shouldContinue = true
 
     for (let i = 0; i < parsedCards.length; i++) {
-      if (!isChecking) break // Stop if user clicked stop
+      if (!shouldContinue) break
       
       const card = parsedCards[i]
       if (!card.number.trim()) continue
       
-      setCurrentIndex(i + 1)
-      
       const cleanNumber = card.number.replace(/\D/g, "")
+      if (!cleanNumber) continue
+      
       const isValid = validateLuhn(cleanNumber)
       const brand = detectBrand(cleanNumber)
 
@@ -124,6 +130,7 @@ export default function CCCheckerPage() {
       })
 
       setResults([...newResults])
+      setCurrentIndex(i + 1)
 
       // 100ms delay between checks for real-time visual feedback
       await new Promise(resolve => setTimeout(resolve, 100))
@@ -135,6 +142,8 @@ export default function CCCheckerPage() {
 
   const handleStop = () => {
     setIsChecking(false)
+    setCurrentIndex(0)
+    setTotalCards(0)
   }
 
   const copyResult = (result: ValidationResult) => {

@@ -427,6 +427,7 @@ export default function CCGeneratorPage() {
                             <th className="px-4 py-3 text-left font-semibold">Expiry Date</th>
                             <th className="px-4 py-3 text-left font-semibold">Expiry Year</th>
                             <th className="px-4 py-3 text-left font-semibold">CVV</th>
+                            <th className="px-4 py-3 text-center font-semibold">Action</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-border/40">
@@ -444,6 +445,19 @@ export default function CCGeneratorPage() {
                               <td className="px-4 py-3 font-mono text-sm">{card.expiryDate}</td>
                               <td className="px-4 py-3 font-mono text-sm">{card.expiryYear}</td>
                               <td className="px-4 py-3 font-mono text-sm">{card.cvv}</td>
+                              <td className="px-4 py-3">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(card.fullCard)
+                                    alert("Card copied!")
+                                  }}
+                                  className="h-8 w-8"
+                                >
+                                  <Copy className="h-4 w-4" />
+                                </Button>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
