@@ -205,7 +205,7 @@ export default function CCGeneratorPage() {
   if (!mounted) return null
 
   return (
-    <div className="flex flex-col animate-fade-in">
+    <div className="flex flex-col animate-fade-in overflow-y-scroll">
       {/* Header */}
       <section className="border-b border-border/40 py-12 sm:py-16">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -229,7 +229,7 @@ export default function CCGeneratorPage() {
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="grid gap-8 lg:grid-cols-4">
             {/* Settings Panel */}
-            <Card className="border-border/40 bg-card/50 backdrop-blur-sm lg:col-span-1 h-fit sticky top-20">
+            <Card className="border-border/40 bg-card/50 backdrop-blur-sm lg:col-span-1 h-fit sticky top-20 z-10">
               <CardHeader>
                 <CardTitle>Configuration</CardTitle>
                 <CardDescription>Set your card parameters</CardDescription>
