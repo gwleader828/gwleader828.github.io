@@ -93,7 +93,8 @@ function generateCards(
     
     const expiryDate = expiryDateMode === "custom" ? customExpiryDate : String(Math.floor(1 + Math.random() * 12)).padStart(2, "0")
     const expiryYear = expiryYearMode === "custom" ? customExpiryYear : String(Math.floor(25 + Math.random() * 10))
-    const cvv = cvvMode === "custom" ? customCVV : String(Math.floor(100 + Math.random() * 900))
+    // Generate CVV with 3-4 digits (3 for most cards, 4 for Amex)
+    const cvv = cvvMode === "custom" ? customCVV : String(Math.floor(Math.random() > 0.9 ? 1000 + Math.random() * 9000 : 100 + Math.random() * 900))
     
     cards.push({
       id: Math.random().toString(36).substring(2, 9),
