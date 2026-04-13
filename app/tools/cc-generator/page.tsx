@@ -450,8 +450,9 @@ export default function CCGeneratorPage() {
                                   variant="ghost"
                                   size="icon"
                                   onClick={() => {
-                                    navigator.clipboard.writeText(card.fullCard)
-                                    alert("Card copied!")
+                                    const cardText = `${card.fullCard}|${card.expiryDate}|${card.expiryYear}|${card.cvv}`
+                                    navigator.clipboard.writeText(cardText)
+                                    alert("Card copied: card|month|year|cvv")
                                   }}
                                   className="h-8 w-8"
                                 >
