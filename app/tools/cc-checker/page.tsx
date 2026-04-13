@@ -19,7 +19,7 @@ interface ValidationResult {
   expiry?: string
 }
 
-// Luhn algorithm validation - Real validator
+// Luhn algorithm validation
 function validateLuhn(cardNumber: string): boolean {
   const digits = cardNumber.replace(/\D/g, "").split("").map(Number)
   if (digits.length < 13 || digits.length > 19) return false
@@ -72,6 +72,7 @@ export default function CCCheckerPage() {
   const [totalCards, setTotalCards] = React.useState(0)
   const [elapsedTime, setElapsedTime] = React.useState(0)
   const [startTime, setStartTime] = React.useState<number | null>(null)
+  const isCheckingRef = React.useRef(false)
 
   React.useEffect(() => {
     setMounted(true)
@@ -100,15 +101,19 @@ export default function CCCheckerPage() {
     }
 
     setIsChecking(true)
+    isCheckingRef.current = true
     setStartTime(Date.now())
     setElapsedTime(0)
     setCurrentIndex(0)
     setTotalCards(parsedCards.length)
+    setResults([]) // Clear previous results
     const newResults: ValidationResult[] = []
-    let shouldContinue = true
 
     for (let i = 0; i < parsedCards.length; i++) {
-      if (!shouldContinue) break
+      if (!isCheckingRef.current) {
+        console.log("[v0] Check stopped by user at card", i)
+        break
+      }
       
       const card = parsedCards[i]
       if (!card.number.trim()) continue
@@ -119,7 +124,7 @@ export default function CCCheckerPage() {
       const isValid = validateLuhn(cleanNumber)
       const brand = detectBrand(cleanNumber)
 
-      newResults.push({
+      const newResult: ValidationResult = {
         id: Math.random().toString(36).substring(2, 9),
         number: cleanNumber,
         isValid,
@@ -127,8 +132,9 @@ export default function CCCheckerPage() {
         message: isValid ? "✓ Valid Card" : "✗ Invalid Card",
         expiry: card.expiry,
         cvv: card.cvv,
-      })
+      }
 
+      newResults.push(newResult)
       setResults([...newResults])
       setCurrentIndex(i + 1)
 
@@ -138,16 +144,17 @@ export default function CCCheckerPage() {
 
     setPastInput("")
     setIsChecking(false)
+    isCheckingRef.current = false
   }
 
   const handleStop = () => {
+    console.log("[v0] Stop button clicked")
+    isCheckingRef.current = false
     setIsChecking(false)
-    setCurrentIndex(0)
-    setTotalCards(0)
   }
 
   const copyResult = (result: ValidationResult) => {
-    const text = `${result.number}${result.expiry ? `|${result.expiry}` : ''}${result.cvv ? `|${result.cvv}` : ''}`
+    const text = `${result.number}|${result.expiry || 'xx/xx'}|${result.cvv || 'xxx'}`
     navigator.clipboard.writeText(text)
     setCopiedId(result.id)
     setTimeout(() => setCopiedId(null), 2000)
@@ -159,6 +166,7 @@ export default function CCCheckerPage() {
 
   const clearAll = () => {
     setResults([])
+    setFilterStatus("all")
   }
 
   const filteredResults = results.filter(r => {
@@ -232,7 +240,7 @@ export default function CCCheckerPage() {
                   {isChecking && (
                     <Button
                       onClick={handleStop}
-                      variant="outline"
+                      variant="destructive"
                       className="gap-2"
                     >
                       <Square className="h-4 w-4" />
@@ -246,7 +254,7 @@ export default function CCCheckerPage() {
                   <div className="space-y-3 border-t border-border/40 pt-4">
                     <div className="space-y-1">
                       <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground">Progress</span>
+                        <span className="text-muted-foreground">Checked</span>
                         <span className="font-semibold">{currentIndex}/{totalCards}</span>
                       </div>
                       <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
@@ -282,17 +290,17 @@ export default function CCCheckerPage() {
                       <div className="space-y-4">
                         {/* Stats */}
                         <div className="grid grid-cols-3 gap-4">
-                          <div className="text-center">
+                          <div className="text-center p-3 rounded-lg bg-muted/40">
                             <p className="text-sm text-muted-foreground">Total</p>
                             <p className="text-2xl font-bold">{results.length}</p>
                           </div>
-                          <div className="text-center">
+                          <div className="text-center p-3 rounded-lg bg-green-500/10">
                             <p className="text-sm text-green-600">Live</p>
                             <p className="text-2xl font-bold text-green-500">{liveCount}</p>
                           </div>
-                          <div className="text-center">
+                          <div className="text-center p-3 rounded-lg bg-red-500/10">
                             <p className="text-sm text-red-600">Dead</p>
-                            <p className="text-2xl font-bold text-destructive">{deadCount}</p>
+                            <p className="text-2xl font-bold text-red-500">{deadCount}</p>
                           </div>
                         </div>
 
@@ -402,45 +410,11 @@ export default function CCCheckerPage() {
                     </div>
                     <h3 className="text-lg font-semibold">No cards checked yet</h3>
                     <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-                      Paste multiple credit card numbers above and click "Start Check" to validate them using real Luhn algorithm.
-                      Live cards will be marked with a green badge, dead cards with red.
+                      Paste multiple credit card numbers above and click "Start Check" to validate them. Live cards show green, dead cards show red.
                     </p>
                   </CardContent>
                 </Card>
               )}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Info Section */}
-      <section className="border-t border-border/40 bg-muted/30 py-12 sm:py-16">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <h2 className="mb-8 text-center text-2xl font-bold">Batch Validation Features</h2>
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            <div>
-              <h3 className="font-semibold mb-2">Real Luhn Algorithm</h3>
-              <p className="text-sm text-muted-foreground">Industry-standard validation for card authenticity</p>
-            </div>
-            <div>
-              <h3 className="font-semibold mb-2">Live/Dead Filter</h3>
-              <p className="text-sm text-muted-foreground">Separate valid from invalid cards instantly</p>
-            </div>
-            <div>
-              <h3 className="font-semibold mb-2">Real-time Progress</h3>
-              <p className="text-sm text-muted-foreground">See elapsed time and estimated time remaining</p>
-            </div>
-            <div>
-              <h3 className="font-semibold mb-2">Brand Detection</h3>
-              <p className="text-sm text-muted-foreground">Auto-detect Visa, Mastercard, Amex, and more</p>
-            </div>
-            <div>
-              <h3 className="font-semibold mb-2">Live Stats</h3>
-              <p className="text-sm text-muted-foreground">See live/dead card count updated in real-time</p>
-            </div>
-            <div>
-              <h3 className="font-semibold mb-2">Copy & Delete</h3>
-              <p className="text-sm text-muted-foreground">Copy any card or delete individual results</p>
             </div>
           </div>
         </div>

@@ -1,97 +1,188 @@
 "use client"
 
 import * as React from "react"
-import { Mail, Copy, RefreshCw, Check, Trash2, Clock } from "lucide-react"
+import { Mail, Copy, RefreshCw, Check, Trash2, Clock, X, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 
-interface TempEmail {
+interface EmailAccount {
   id: string
   email: string
+  token: string
   createdAt: Date
-  expiresAt: Date
 }
 
-const domains = [
-  "tempmail.com",
-  "mailinator.com",
-  "10minutemail.com",
-  "throwaway.email",
-  "temp-mail.org",
-  "guerrillamail.com",
-  "tempmail.io",
-  "sharklasers.com",
-  "dispostable.com",
-  "fakeinbox.com",
-]
+interface Message {
+  id: string
+  from: string
+  subject: string
+  intro: string
+  text?: string
+  html?: string[]
+  createdAt: string
+  isRead: boolean
+}
 
-const adjectives = [
-  "swift", "bright", "lucky", "happy", "clever", "bold", "silent", "quick",
-  "smooth", "strong", "fresh", "cool", "nice", "smart", "wise", "kind",
-  "fierce", "brave", "wild", "free", "pure", "deep", "rich", "rare",
-]
-
-const nouns = [
-  "phoenix", "dragon", "tiger", "falcon", "wolf", "raven", "hawk", "eagle",
-  "storm", "thunder", "lightning", "ocean", "mountain", "forest", "river", "sky",
-  "star", "moon", "sun", "cloud", "wave", "fire", "ice", "stone",
-]
-
-function generateTempEmail(): string {
-  const adjective = adjectives[Math.floor(Math.random() * adjectives.length)]
-  const noun = nouns[Math.floor(Math.random() * nouns.length)]
-  const number = Math.floor(Math.random() * 10000)
-  const domain = domains[Math.floor(Math.random() * domains.length)]
-  return `${adjective}${noun}${number}@${domain}`
+interface MailState {
+  accounts: EmailAccount[]
+  messages: { [key: string]: Message[] }
+  selectedMessage: Message | null
+  loading: boolean
+  error: string | null
+  checkingAccounts: { [key: string]: boolean }
 }
 
 export default function TempMailPage() {
-  const [emails, setEmails] = React.useState<TempEmail[]>([])
+  const [state, setState] = React.useState<MailState>({
+    accounts: [],
+    messages: {},
+    selectedMessage: null,
+    loading: false,
+    error: null,
+    checkingAccounts: {},
+  })
+
   const [copiedId, setCopiedId] = React.useState<string | null>(null)
 
-  const handleGenerate = () => {
-    const now = new Date()
-    const expiresAt = new Date(now.getTime() + 10 * 60 * 1000) // 10 minutes
+  const handleGenerateEmail = async () => {
+    setState(prev => ({ ...prev, loading: true, error: null }))
+    
+    try {
+      const response = await fetch('/api/mail/create-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
 
-    const newEmail: TempEmail = {
-      id: Math.random().toString(36).substring(2, 9),
-      email: generateTempEmail(),
-      createdAt: now,
-      expiresAt,
+      const data = await response.json()
+
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to create email')
+      }
+
+      const newAccount: EmailAccount = {
+        id: data.id,
+        email: data.email,
+        token: data.token,
+        createdAt: new Date(),
+      }
+
+      setState(prev => ({
+        ...prev,
+        accounts: [newAccount, ...prev.accounts],
+        messages: { ...prev.messages, [newAccount.id]: [] },
+        loading: false,
+      }))
+
+      // Start checking for messages
+      checkMessages(newAccount.id, data.token)
+    } catch (error) {
+      setState(prev => ({
+        ...prev,
+        loading: false,
+        error: error instanceof Error ? error.message : 'Failed to create email',
+      }))
     }
-
-    setEmails([newEmail, ...emails])
   }
 
-  const copyEmail = (email: TempEmail) => {
-    navigator.clipboard.writeText(email.email)
-    setCopiedId(email.id)
+  const checkMessages = async (accountId: string, token: string) => {
+    setState(prev => ({
+      ...prev,
+      checkingAccounts: { ...prev.checkingAccounts, [accountId]: true },
+    }))
+
+    try {
+      const response = await fetch('/api/mail/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        setState(prev => ({
+          ...prev,
+          messages: { ...prev.messages, [accountId]: data.messages },
+        }))
+      }
+    } catch (error) {
+      console.error('Error fetching messages:', error)
+    } finally {
+      setState(prev => ({
+        ...prev,
+        checkingAccounts: { ...prev.checkingAccounts, [accountId]: false },
+      }))
+    }
+  }
+
+  const openMessage = async (message: Message, accountId: string) => {
+    const account = state.accounts.find(acc => acc.id === accountId)
+    if (!account) return
+
+    try {
+      const response = await fetch('/api/mail/message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: account.token, messageId: message.id }),
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        setState(prev => ({ ...prev, selectedMessage: data.message }))
+      }
+    } catch (error) {
+      console.error('Error fetching message:', error)
+    }
+  }
+
+  const copyEmail = (email: string) => {
+    navigator.clipboard.writeText(email)
+    setCopiedId(email)
     setTimeout(() => setCopiedId(null), 2000)
   }
 
-  const deleteEmail = (id: string) => {
-    setEmails(emails.filter((e) => e.id !== id))
+  const deleteAccount = (id: string) => {
+    setState(prev => ({
+      ...prev,
+      accounts: prev.accounts.filter(acc => acc.id !== id),
+      messages: { ...prev.messages, [id]: undefined },
+    }))
   }
 
   const clearAll = () => {
-    setEmails([])
+    setState(prev => ({
+      ...prev,
+      accounts: [],
+      messages: {},
+    }))
   }
 
-  const formatTime = (date: Date) => {
-    return date.toLocaleTimeString()
+  const formatTime = (dateString: string) => {
+    try {
+      return new Date(dateString).toLocaleTimeString()
+    } catch {
+      return dateString
+    }
   }
 
-  const timeUntilExpiry = (expiresAt: Date) => {
-    const now = new Date()
-    const diff = expiresAt.getTime() - now.getTime()
-    const minutes = Math.floor(diff / 60000)
-    const seconds = Math.floor((diff % 60000) / 1000)
-    return `${minutes}m ${seconds}s`
-  }
+  // Auto-refresh messages every 5 seconds
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      state.accounts.forEach(account => {
+        if (!state.checkingAccounts[account.id]) {
+          checkMessages(account.id, account.token)
+        }
+      })
+    }, 5000)
+
+    return () => clearInterval(interval)
+  }, [state.accounts, state.checkingAccounts])
 
   return (
-    <div className="flex flex-col animate-fade-in">
+    <div className="flex flex-col animate-fade-in overflow-y-scroll">
       {/* Header */}
       <section className="border-b border-border/40 py-12 sm:py-16">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -115,87 +206,164 @@ export default function TempMailPage() {
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="grid gap-8 lg:grid-cols-3">
             {/* Settings Panel */}
-            <Card className="h-fit border-border/40 bg-card/50 backdrop-blur-sm lg:sticky lg:top-24">
+            <Card className="h-fit border-border/40 bg-card/50 backdrop-blur-sm lg:sticky lg:top-24 z-10">
               <CardHeader>
                 <CardTitle>Generate Email</CardTitle>
                 <CardDescription>Create temporary email addresses</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                <Button onClick={handleGenerate} className="w-full gap-2">
-                  <RefreshCw className="h-4 w-4" />
-                  Generate Email
+                <Button 
+                  onClick={handleGenerateEmail}
+                  disabled={state.loading}
+                  className="w-full gap-2"
+                >
+                  {state.loading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="h-4 w-4" />
+                      Generate Email
+                    </>
+                  )}
                 </Button>
+                {state.error && (
+                  <p className="text-xs text-destructive">{state.error}</p>
+                )}
                 <p className="text-xs text-muted-foreground">
-                  Each email expires in 10 minutes. Generate new ones as needed.
+                  Each email receives messages for 24 hours. Messages auto-refresh every 5 seconds.
                 </p>
               </CardContent>
             </Card>
 
             {/* Results Panel */}
             <div className="lg:col-span-2">
-              {emails.length > 0 ? (
+              {state.accounts.length > 0 ? (
                 <div className="space-y-4">
                   {/* Actions Bar */}
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <p className="text-sm text-muted-foreground">
-                      Generated <span className="font-medium text-foreground">{emails.length}</span> email{emails.length !== 1 ? "s" : ""}
+                      <span className="font-medium text-foreground">{state.accounts.length}</span> email{state.accounts.length !== 1 ? "s" : ""} generated
                     </p>
-                    <Button variant="outline" size="sm" onClick={clearAll} className="gap-2 text-destructive hover:text-destructive">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={clearAll}
+                      className="gap-2 text-destructive hover:text-destructive"
+                    >
                       <Trash2 className="h-4 w-4" />
                       Clear All
                     </Button>
                   </div>
 
-                  {/* Email List */}
-                  <div className="space-y-3">
-                    {emails.map((email, index) => (
-                      <Card
-                        key={email.id}
-                        className="group border-border/40 bg-card/50 backdrop-blur-sm transition-all duration-300 hover:border-border hover:bg-card animate-slide-up"
+                  {/* Email Accounts */}
+                  <div className="space-y-4">
+                    {state.accounts.map((account, index) => (
+                      <div
+                        key={account.id}
+                        className="animate-slide-up"
                         style={{ animationDelay: `${index * 50}ms` }}
                       >
-                        <CardContent className="p-4">
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="space-y-2 text-sm flex-1">
-                              <div className="flex items-center gap-3">
-                                <Mail className="h-5 w-5 text-primary" />
-                                <span className="font-mono text-base break-all">{email.email}</span>
+                        {/* Email Card */}
+                        <Card className="border-border/40 bg-card/50 backdrop-blur-sm">
+                          <CardContent className="p-4">
+                            <div className="flex items-center justify-between gap-4 mb-4">
+                              <div className="space-y-2 flex-1">
+                                <div className="flex items-center gap-3">
+                                  <Mail className="h-5 w-5 text-primary" />
+                                  <span className="font-mono text-base break-all">{account.email}</span>
+                                </div>
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                  <Clock className="h-3 w-3" />
+                                  <span>Created: {formatTime(account.createdAt.toISOString())}</span>
+                                </div>
                               </div>
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <Clock className="h-3 w-3" />
-                                <span>Created: {formatTime(email.createdAt)}</span>
-                              </div>
-                              <div className="flex items-center gap-2 text-xs">
-                                <Badge variant="secondary" className="text-xs">
-                                  Expires in: {timeUntilExpiry(email.expiresAt)}
-                                </Badge>
+                              <div className="flex gap-2">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => copyEmail(account.email)}
+                                  className="h-8 w-8"
+                                >
+                                  {copiedId === account.email ? (
+                                    <Check className="h-4 w-4 text-green-500" />
+                                  ) : (
+                                    <Copy className="h-4 w-4" />
+                                  )}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => deleteAccount(account.id)}
+                                  className="h-8 w-8 text-destructive hover:text-destructive"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
                               </div>
                             </div>
-                            <div className="flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => copyEmail(email)}
-                                className="h-8 w-8 shrink-0"
-                              >
-                                {copiedId === email.id ? (
-                                  <Check className="h-4 w-4 text-green-500" />
-                                ) : (
-                                  <Copy className="h-4 w-4" />
-                                )}
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => deleteEmail(email.id)}
-                                className="h-8 w-8 shrink-0 text-destructive hover:text-destructive"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
+
+                            {/* Refresh Button */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => checkMessages(account.id, account.token)}
+                              disabled={state.checkingAccounts[account.id]}
+                              className="w-full gap-2 mb-4"
+                            >
+                              {state.checkingAccounts[account.id] ? (
+                                <>
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                  Checking...
+                                </>
+                              ) : (
+                                <>
+                                  <RefreshCw className="h-3 w-3" />
+                                  Check Messages
+                                </>
+                              )}
+                            </Button>
+
+                            {/* Messages */}
+                            {(state.messages[account.id]?.length || 0) > 0 ? (
+                              <div className="space-y-2">
+                                <p className="text-xs font-semibold text-muted-foreground">
+                                  Messages: {state.messages[account.id]?.length || 0}
+                                </p>
+                                {state.messages[account.id]?.map(msg => (
+                                  <Card
+                                    key={msg.id}
+                                    className="border-border/40 bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors"
+                                    onClick={() => openMessage(msg, account.id)}
+                                  >
+                                    <CardContent className="p-3">
+                                      <div className="space-y-1">
+                                        <p className="text-xs font-semibold text-foreground truncate">
+                                          {msg.subject || '(No Subject)'}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground truncate">
+                                          From: {msg.from}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground line-clamp-2">
+                                          {msg.intro || '(No preview)'}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground">
+                                          {formatTime(msg.createdAt)}
+                                        </p>
+                                      </div>
+                                    </CardContent>
+                                  </Card>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-muted-foreground text-center py-4">
+                                No messages yet. Waiting for emails...
+                              </p>
+                            )}
+                          </CardContent>
+                        </Card>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -217,26 +385,47 @@ export default function TempMailPage() {
         </div>
       </section>
 
-      {/* Features Section */}
-      <section className="border-t border-border/40 bg-muted/30 py-12 sm:py-16">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <h2 className="mb-8 text-center text-2xl font-bold">Features</h2>
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            <div className="text-center">
-              <Badge variant="secondary" className="mb-3">Instant Generation</Badge>
-              <p className="text-sm text-muted-foreground">Create new email addresses in seconds with a single click.</p>
-            </div>
-            <div className="text-center">
-              <Badge variant="secondary" className="mb-3">Privacy Protected</Badge>
-              <p className="text-sm text-muted-foreground">Keep your real email address safe from spam and unwanted contact.</p>
-            </div>
-            <div className="text-center">
-              <Badge variant="secondary" className="mb-3">Time Limited</Badge>
-              <p className="text-sm text-muted-foreground">Emails expire in 10 minutes for added security and cleanup.</p>
-            </div>
-          </div>
+      {/* Message Modal */}
+      {state.selectedMessage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <Card className="w-full max-w-2xl max-h-[80vh] overflow-y-auto border-border/40">
+            <CardHeader className="flex flex-row items-start justify-between">
+              <div className="flex-1 space-y-2">
+                <CardTitle>{state.selectedMessage.subject || '(No Subject)'}</CardTitle>
+                <CardDescription>From: {state.selectedMessage.from}</CardDescription>
+                <p className="text-xs text-muted-foreground">
+                  {formatTime(state.selectedMessage.createdAt)}
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setState(prev => ({ ...prev, selectedMessage: null }))}
+                className="h-8 w-8"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {state.selectedMessage.text && (
+                <div className="rounded-lg bg-muted/30 p-4">
+                  <p className="whitespace-pre-wrap text-sm">{state.selectedMessage.text}</p>
+                </div>
+              )}
+              {state.selectedMessage.html && state.selectedMessage.html.length > 0 && (
+                <div className="rounded-lg bg-muted/30 p-4">
+                  {state.selectedMessage.html.map((part, idx) => (
+                    <div key={idx} className="text-sm" dangerouslySetInnerHTML={{ __html: part }} />
+                  ))}
+                </div>
+              )}
+              {!state.selectedMessage.text && (!state.selectedMessage.html || state.selectedMessage.html.length === 0) && (
+                <p className="text-sm text-muted-foreground">(No content)</p>
+              )}
+            </CardContent>
+          </Card>
         </div>
-      </section>
+      )}
     </div>
   )
 }
