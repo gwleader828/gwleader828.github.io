@@ -154,7 +154,7 @@ export default function CCCheckerPage() {
   }
 
   const copyResult = (result: ValidationResult) => {
-    const text = `${result.number}${result.expiry ? `|${result.expiry}` : ''}${result.cvv ? `|${result.cvv}` : ''}`
+    const text = `${result.number}|${result.expiry || 'xx/xx'}|${result.cvv || 'xxx'}`
     navigator.clipboard.writeText(text)
     setCopiedId(result.id)
     setTimeout(() => setCopiedId(null), 2000)
