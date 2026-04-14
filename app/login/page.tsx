@@ -228,11 +228,12 @@ export default function LoginPage() {
           {/* Google OAuth */}
           <button
             onClick={handleGoogleSignIn}
-            disabled={loading}
+            disabled={true}
+            title="Google OAuth not configured yet"
             className="w-full border border-border/40 hover:border-border/60 bg-background hover:bg-muted/30 text-foreground font-medium py-2.5 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mb-6"
           >
             <Chrome className="w-4 h-4" />
-            Continue with Google
+            Continue with Google (Coming Soon)
           </button>
 
           {/* Toggle */}
